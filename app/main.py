@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.linalg import expm, fractional_matrix_power
+from itertools import product
+import qutip
 
 def xi(F, q, d):
     gamma = np.sqrt(F / d) + np.sqrt((d - 1) * (1 - F) / d)
@@ -164,34 +167,27 @@ q_values = np.linspace(2, 4, 100)
 theta_values = np.linspace(0, np.pi/2, 100)
 Q, Theta = np.meshgrid(q_values, theta_values)
 
-# Functions to compute the q-concurrence and upper bound
 def C_q(theta, q):
     return 1 - np.cos(theta)**(2*q) - 2**(1-q) * np.sin(theta)**(2*q)
 
 def upper_bound(theta, q):
     return 1 - np.cos(theta)**(2*q)
 
-# Compute the values
 C_q_values = C_q(Theta, Q)
 upper_bound_values = upper_bound(Theta, Q)
 
-# Plot
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 
-# Surface plot for C_q
 surf1 = ax.plot_surface(Q, Theta, C_q_values, color='blue', alpha=0.7, label='C_q(|Γ\')')
 
-# Surface plot for upper bound
 surf2 = ax.plot_surface(Q, Theta, upper_bound_values, color='green', alpha=0.3, label='Upper Bound')
 
-# Labels
 ax.set_xlabel('q')
 ax.set_ylabel('θ')
 ax.set_zlabel('C_q or Upper Bound')
 ax.set_title('The q-concurrence and upper bounds of the superposition state')
 
-# Add legend
 legend1 = ax.legend([surf1], ['C_q(|Γ\')'], loc='upper left')
 legend2 = ax.legend([surf2], ['Upper Bound'], loc='upper right')
 ax.add_artist(legend1)
@@ -200,61 +196,158 @@ ax.add_artist(legend1)
 plt.savefig('plot_4.png')
 plt.show()
 
-# # Define the functions for the new example with corrections
-# def C_q_Phi_example4(theta, q):
-#     return 1 - np.cos(theta)**(2*q) - 2**(1-q) * np.sin(theta)**(2*q)
 
-# def C_q_Psi_example4(phi, q):
-#     return 1 - np.cos(phi)**(2*q) - 2**(1-q) * np.sin(phi)**(2*q)
+def pauli_matrices():
+    """Return the Pauli matrices as a list."""
+    I = np.eye(2)
+    X = np.array([[0, 1], [1, 0]])
+    Y = np.array([[0, -1j], [1j, 0]])
+    Z = np.array([[1, 0], [0, -1]])
+    return [I, X, Y, Z]
 
-# def C_q_Gamma_example4(theta, phi, q):
-#     c_plus = np.sqrt(1 + np.sin(theta) * np.sin(phi))
-#     c_minus = np.sqrt(1 - np.sin(theta) * np.sin(phi))
+def kron_n(matrices):
+    """Return the Kronecker product of a list of matrices."""
+    result = matrices[0]
+    for mat in matrices[1:]:
+        result = np.kron(result, mat)
+    return result
+
+def specific_heisenberg_hamiltonian(n, h):
+    """Construct the Heisenberg Hamiltonian for specific qubit pairs."""
+    _, X, Y, Z = pauli_matrices()
+    H = np.zeros((2**n, 2**n), dtype=complex)
     
-#     with np.errstate(divide='ignore', invalid='ignore'):
-#         term_plus = (2**q * (np.cos(theta)**2 + np.cos(phi)**2)**q + 2 * (np.sin(theta) + np.sin(phi))**(2*q)) / (4 * c_plus**(2*q))
-#         term_minus = (2**q * (np.cos(theta)**2 + np.cos(phi)**2)**q + 2 * (np.sin(theta) - np.sin(phi))**(2*q)) / (4 * c_minus**(2*q))
-        
-#         term_plus = np.nan_to_num(term_plus, nan=1.0, posinf=1.0, neginf=0.0)
-#         term_minus = np.nan_to_num(term_minus, nan=1.0, posinf=1.0, neginf=0.0)
+    pairs = {
+        5: [(0, 4), (0, 2), (1, 3), (2, 4)],
+        6: [(0, 4), (0, 2), (1, 3), (3, 5), (1, 5)],
+        7: [(0, 4), (0, 2), (1, 3), (3, 5), (1, 5), (4, 6)]
+    }
     
-#     return 1 - term_plus, 1 - term_minus
+    weights = {
+        5: [5, 2, 4, 6],
+        6: [5, 2, 4, 1, 6],
+        7: [5, 2, 4, 1, 6, 3]
+    }
+    
+    for i, (p1, p2) in enumerate(pairs[n]):
+        H += weights[n][i] * (kron_n([Z if k == p1 or k == p2 else np.eye(2) for k in range(n)]) +
+                              kron_n([X if k == p1 or k == p2 else np.eye(2) for k in range(n)]) +
+                              kron_n([Y if k == p1 or k == p2 else np.eye(2) for k in range(n)]))
+    
+    for i in range(n):
+        H += h[i] * kron_n([Z if k == i else np.eye(2) for k in range(n)])
+    
+    return H
 
-# # Compute upper bound functions
-# def F_q_rhoA(theta, phi, q):
-#     return 1 - ((np.cos(theta)**2 + np.cos(phi)**2)**q / 2**q) - ((np.sin(theta)**2 + np.sin(phi)**2)**q / 2**(2*q-1))
+def plus_state(n):
+    """Generate the |+> state for n qubits."""
+    plus = np.array([1, 1]) / np.sqrt(2)
+    state = plus
+    for _ in range(n-1):
+        state = np.kron(state, plus)
+    return state
 
-# def F_q_rhoB(theta, phi, q):
-#     return 1 - ((np.cos(theta)**2 + np.cos(phi)**2)**q / 2**q) - ((np.sin(theta)**2 + np.sin(phi)**2)**q / 2**(2*q-1))
+def density_matrix(state):
+    """Create the density matrix from a state vector."""
+    return np.outer(state, state.conj())
 
-# # Create a meshgrid for theta, phi, and q
-# theta = np.linspace(0, np.pi/2, 50)
-# phi = np.linspace(0, np.pi/2, 50)
-# q_values = np.linspace(2, 4, 50)
+def reduced_density_matrix(rho, keep):
+    """Calculate the reduced density matrix by tracing out all qubits except the ones in 'keep'."""
+    total_qubits = int(np.log2(rho.shape[0]))
+    dims = [2] * total_qubits
+    rho_qobj = qutip.Qobj(rho, dims=[dims, dims])
+    traced_rho = rho_qobj.ptrace(keep)
+    return traced_rho.full()
 
-# theta_mesh, phi_mesh, q_mesh = np.meshgrid(theta, phi, q_values, indexing='ij')
+def q_concurrence(rho_A, q):
+    """Calculate the q-concurrence."""
+    return 1 - np.trace(fractional_matrix_power(rho_A, q))
 
-# # Compute the values for C_q(|Γ⟩) and the upper bound
-# C_q_values_plus, C_q_values_minus = C_q_Gamma_example4(theta_mesh, phi_mesh, q_mesh)
-# F_q_rhoA_values = F_q_rhoA(theta_mesh, phi_mesh, q_mesh)
-# F_q_rhoB_values = F_q_rhoB(theta_mesh, phi_mesh, q_mesh)
+def tsallis_q_entanglement(rho, q):
+    """Calculate the Tsallis-q entanglement."""
+    return (1 - np.trace(np.linalg.matrix_power(rho, q))) / (q - 1)
 
-# # Plotting the q-concurrence and upper bound
-# fig = plt.figure()
-# ax = fig.add_subplot(111, projection='3d')
+def evolve_state(state, H, t):
+    """Evolve the state under the Hamiltonian H for time t."""
+    U = expm(-1j * H * t)
+    return U @ state
 
-# # Plot C_q(|Γ⟩)
-# ax.plot_surface(q_mesh[:, :, 0], theta_mesh[:, :, 0], C_q_values_plus[:, :, 0], color='blue', alpha=0.7, label=r'$C_q(|\Gamma\rangle)$')
-# ax.plot_surface(q_mesh[:, :, 0], theta_mesh[:, :, 0], C_q_values_minus[:, :, 0], color='blue', alpha=0.7)
+# Parameters
+n_values = [5, 6, 7]
+q_values = np.arange(2, 21)
+evolution_time = 500
 
-# # Plot the upper bound
-# ax.plot_surface(q_mesh[:, :, 0], theta_mesh[:, :, 0], F_q_rhoA_values[:, :, 0], color='green', alpha=0.3, label='upper bound')
-# ax.plot_surface(q_mesh[:, :, 0], theta_mesh[:, :, 0], F_q_rhoB_values[:, :, 0], color='green', alpha=0.3)
+# Initialize results
+C_q_results = {n: [] for n in n_values}
+T_q_results = {n: [] for n in n_values}
 
-# ax.set_xlabel(r'$q$')
-# ax.set_ylabel(r'$\theta$')
-# ax.set_zlabel(r'$C_q$ and upper bound')
+# Calculate for each n
+for n in n_values:
+    h = np.random.uniform(-10, 10, size=n)
+    H = specific_heisenberg_hamiltonian(n, h)
+    state = plus_state(n) 
+    
+    evolved_state = evolve_state(state, H, evolution_time)
+    rho = density_matrix(evolved_state)
+    
+    rho_A = reduced_density_matrix(rho, list(range(n//2)))
+    
+    for q in q_values:
+        C_q_results[n].append(q_concurrence(rho_A, q))
+        T_q_results[n].append(tsallis_q_entanglement(rho_A, q))
+
+plt.figure(figsize=(10, 6))
+markers = ['*', 'd', 's']
+colors = ['r', 'g', 'b']
+lines = ['-', '--']
+labels = [r'$C_q, n=5$', r'$T_q, n=5$', r'$C_q, n=6$', r'$T_q, n=6$', r'$C_q, n=7$', r'$T_q, n=7$']
+
+for i, n in enumerate(n_values):
+    plt.plot(q_values, C_q_results[n], color=colors[i], marker=markers[i], linestyle='-', label=labels[2*i])
+    plt.plot(q_values, T_q_results[n], color=colors[i], marker=markers[i], linestyle='--', label=labels[2*i+1])
+
+plt.xlabel(r'$q$')
+plt.ylabel('Value')
+plt.title('Comparison of the $q$-concurrence and Tsallis-$q$ entanglement in terms of $q$')
+plt.legend(loc='best')
+plt.grid(True)
+plt.savefig('plot_5.png')
+plt.show()
+
+n = 5  
+q_values = np.arange(2, 21)
+t_values = np.linspace(0, 500, 100)
 
 
-# plt.savefig('plot_4.png')
-# plt.show()
+C_q_heatmap = np.zeros((len(t_values), len(q_values)))
+T_q_heatmap = np.zeros((len(t_values), len(q_values)))
+
+h = np.random.uniform(-10, 10, size=n)
+H = specific_heisenberg_hamiltonian(n, h)
+state = plus_state(n)  # Use the |+> state for initialization
+
+for t_idx, t in enumerate(t_values):
+    evolved_state = evolve_state(state, H, t)
+    rho = density_matrix(evolved_state)
+    rho_A = reduced_density_matrix(rho, list(range(n//2)))
+    
+    for q_idx, q in enumerate(q_values):
+        C_q_heatmap[t_idx, q_idx] = q_concurrence(rho_A, q)
+        T_q_heatmap[t_idx, q_idx] = tsallis_q_entanglement(rho_A, q)
+
+fig, ax = plt.subplots(1, 2, figsize=(15, 6))
+
+c1 = ax[0].imshow(C_q_heatmap, aspect='auto', cmap='gray', extent=[q_values.min(), q_values.max(), t_values.min(), t_values.max()])
+ax[0].set_xlabel(r'$q$')
+ax[0].set_ylabel(r'$t$')
+ax[0].set_title(r'$q$-concurrence Heatmap')
+fig.colorbar(c1, ax=ax[0])
+
+c2 = ax[1].imshow(T_q_heatmap, aspect='auto', cmap='gray', extent=[q_values.min(), q_values.max(), t_values.min(), t_values.max()])
+ax[1].set_xlabel(r'$q$')
+ax[1].set_ylabel(r'$t$')
+ax[1].set_title(r'Tsallis-$q$ Entanglement Heatmap')
+fig.colorbar(c2, ax=ax[1])
+
+plt.savefig('plot_6.png')
+plt.show()
