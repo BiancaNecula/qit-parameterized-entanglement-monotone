@@ -297,14 +297,16 @@ for n in n_values:
         T_q_results[n].append(tsallis_q_entanglement(rho_A, q))
 
 plt.figure(figsize=(10, 6))
-markers = ['*', 'd', 's']
-colors = ['r', 'g', 'b']
-lines = ['-', '--']
-labels = [r'$C_q, n=5$', r'$T_q, n=5$', r'$C_q, n=6$', r'$T_q, n=6$', r'$C_q, n=7$', r'$T_q, n=7$']
+markers_cq = ['*', 'd', 's']
+markers_tq = ['o', '^', 'v']
+colors_cq = 'r'
+colors_tq = 'b'
+labels_cq = [r'$C_q, n=5$', r'$C_q, n=6$', r'$C_q, n=7$']
+labels_tq = [r'$T_q, n=5$', r'$T_q, n=6$', r'$T_q, n=7$']
 
 for i, n in enumerate(n_values):
-    plt.plot(q_values, C_q_results[n], color=colors[i], marker=markers[i], linestyle='-', label=labels[2*i])
-    plt.plot(q_values, T_q_results[n], color=colors[i], marker=markers[i], linestyle='--', label=labels[2*i+1])
+    plt.plot(q_values, C_q_results[n], color=colors_cq, marker=markers_cq[i], linestyle='-', label=labels_cq[i])
+    plt.plot(q_values, T_q_results[n], color=colors_tq, marker=markers_tq[i], linestyle='--', label=labels_tq[i])
 
 plt.xlabel(r'$q$')
 plt.ylabel('Value')
